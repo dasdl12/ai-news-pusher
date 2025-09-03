@@ -198,7 +198,7 @@
                                     推送日报
                                 </button>
                                 <button @click="sendPoster" :disabled="isWorking || !posterPath"
-                                        class="w-full bg-orange-600 text-white py-1.5 px-3 rounded text-sm hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                        class="w-full bg-purple-600 text-white py-1.5 px-3 rounded text-sm hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                     <i class="fas fa-image mr-1"></i>
                                     推送海报
                                 </button>
@@ -252,18 +252,44 @@
 
                             <!-- AI日报内容 -->
                             <div v-show="activeTab === 'report'">
-                                <div v-if="!reportContent" class="text-center text-gray-500 py-8">
+                                <div v-if="!reportContent && !isEditing" class="text-center text-gray-500 py-8">
                                     <i class="fas fa-file-alt text-4xl mb-4"></i>
                                     <p>暂无AI日报，请先生成日报</p>
                                 </div>
                                 <div v-else>
-                                    <div class="mb-4 flex justify-end">
-                                        <button @click="copyToClipboard(reportContent)" 
-                                                class="px-3 py-1 bg-gray-200 text-gray-700 rounded text-sm hover:bg-gray-300 transition-colors">
-                                            <i class="fas fa-copy mr-1"></i>复制内容
-                                        </button>
+                                    <div class="mb-4 flex justify-between items-center">
+                                        <div class="flex space-x-2">
+                                            <button v-if="!isEditing" @click="startEditing" 
+                                                    class="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors">
+                                                <i class="fas fa-edit mr-1"></i>编辑日报
+                                            </button>
+                                            <button v-if="isEditing" @click="saveReport" 
+                                                    class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors">
+                                                <i class="fas fa-save mr-1"></i>保存修改
+                                            </button>
+                                            <button v-if="isEditing" @click="cancelEditing" 
+                                                    class="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors">
+                                                <i class="fas fa-times mr-1"></i>取消编辑
+                                            </button>
+                                        </div>
+                                        <div class="flex space-x-2">
+                                            <button @click="copyToClipboard(reportContent)" 
+                                                    class="px-3 py-1 bg-gray-200 text-gray-700 rounded text-sm hover:bg-gray-300 transition-colors">
+                                                <i class="fas fa-copy mr-1"></i>复制内容
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div class="markdown-content border border-gray-200 rounded-lg p-4 bg-white max-h-96 overflow-y-auto">
+                                    <!-- 编辑模式 -->
+                                    <div v-if="isEditing" class="border border-gray-200 rounded-lg bg-white">
+                                        <textarea 
+                                            v-model="editingContent"
+                                            class="w-full h-96 p-4 border-none resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg font-mono text-sm"
+                                            placeholder="请输入或编辑AI日报内容..."
+                                            style="min-height: 400px;"
+                                        ></textarea>
+                                    </div>
+                                    <!-- 预览模式 -->
+                                    <div v-else class="markdown-content border border-gray-200 rounded-lg p-4 bg-white max-h-96 overflow-y-auto">
                                         <pre class="whitespace-pre-wrap text-sm" v-text="reportContent"></pre>
                                     </div>
                                 </div>
@@ -421,6 +447,10 @@
                     isWorking: false,
                     notification: null,
                     showConfigModal: false,
+                    
+                    // 编辑状态
+                    isEditing: false,
+                    editingContent: '',
                     
                     // 配置管理
                     configForm: {
@@ -603,6 +633,46 @@
                         this.addLog('error', `生成日报异常: ${error.message}`);
                     } finally {
                         this.isWorking = false;
+                    }
+                },
+                
+                // 开始编辑日报
+                startEditing() {
+                    this.isEditing = true;
+                    this.editingContent = this.reportContent;
+                },
+                
+                // 取消编辑
+                cancelEditing() {
+                    this.isEditing = false;
+                    this.editingContent = '';
+                },
+                
+                // 保存编辑的日报
+                async saveReport() {
+                    if (!this.editingContent.trim()) {
+                        this.showNotification('warning', '日报内容不能为空');
+                        return;
+                    }
+                    
+                    try {
+                        const response = await axios.post('/api/save_report', {
+                            date: this.selectedDate,
+                            content: this.editingContent
+                        });
+                        
+                        if (response.data.success) {
+                            this.reportContent = this.editingContent;
+                            this.isEditing = false;
+                            this.editingContent = '';
+                            this.showNotification('success', '日报保存成功');
+                            this.addLog('info', '日报编辑保存成功');
+                        } else {
+                            this.showNotification('error', response.data.error || '保存失败');
+                        }
+                    } catch (error) {
+                        this.showNotification('error', '保存日报失败');
+                        this.addLog('error', `保存日报异常: ${error.message}`);
                     }
                 },
                 

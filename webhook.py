@@ -220,6 +220,44 @@ class KingsoftWebhook:
         
         return '\n'.join(formatted_lines)
     
+    async def send_poster_only(self, image_path: str = None, image_url: str = None, date: str = None) -> Dict:
+        """
+        只发送海报图片（不包含文字版本）
+        Args:
+            image_path: 海报图片路径
+            image_url: 海报图片URL（推荐）
+            date: 日期
+        Returns:
+            发送结果
+        """
+        try:
+            # 只发送图片
+            image_result = await self.send_image(
+                image_path=image_path,
+                image_url=image_url,
+                description=f"AI日报海报 - {date or datetime.now().strftime('%Y-%m-%d')}"
+            )
+            
+            if image_result.get('success', False):
+                return {
+                    'success': True,
+                    'message': '海报发送成功',
+                    'result': image_result
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': image_result.get('error', '海报发送失败'),
+                    'result': image_result
+                }
+            
+        except Exception as e:
+            logger.error(f"发送海报时出错: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
     async def send_poster_with_report(self, report_content: str, image_path: str = None, image_url: str = None, date: str = None) -> Dict:
         """
         发送日报海报（图片+文字版本）

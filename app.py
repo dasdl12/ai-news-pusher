@@ -398,6 +398,50 @@ def send_report():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/save_report', methods=['POST'])
+def save_report():
+    """保存编辑后的日报"""
+    try:
+        data = request.json
+        content = data.get('content', '')
+        target_date = data.get('date', date.today().strftime('%Y-%m-%d'))
+        
+        if not content:
+            return jsonify({'success': False, 'error': '日报内容不能为空'}), 400
+        
+        # 保存JSON格式
+        report_data = {
+            'content': content,
+            'date': target_date,
+            'timestamp': datetime.now().isoformat(),
+            'edited': True,
+            'success': True
+        }
+        
+        report_file = os.path.join(Config.REPORTS_DIR, f"report_{target_date.replace('-', '')}.json")
+        with open(report_file, 'w', encoding='utf-8') as f:
+            json.dump(report_data, f, ensure_ascii=False, indent=2)
+        
+        # 保存Markdown格式
+        md_file = os.path.join(Config.REPORTS_DIR, f"report_{target_date.replace('-', '')}.md")
+        with open(md_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        logger.info(f"日报编辑保存成功: {target_date}")
+        
+        return jsonify({
+            'success': True,
+            'message': '日报保存成功',
+            'files': {
+                'json': report_file,
+                'markdown': md_file
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"保存日报失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/generate_poster', methods=['POST'])
 def generate_poster():
     """生成海报"""
@@ -446,18 +490,17 @@ def generate_poster():
 
 @app.route('/api/send_poster', methods=['POST'])
 def send_poster():
-    """发送海报到Webhook"""
+    """发送海报到Webhook（只发送图片，不包含文字版本）"""
     try:
         data = request.json
         image_path = data.get('image_path', '')
-        content = data.get('content', '')
         target_date = data.get('date', date.today().strftime('%Y-%m-%d'))
         
         if not os.path.exists(image_path):
             return jsonify({'success': False, 'error': '海报文件不存在'}), 400
         
         webhook = KingsoftWebhook()
-        result = run_async(webhook.send_poster_with_report(content, image_path, target_date))
+        result = run_async(webhook.send_poster_only(image_path=image_path, date=target_date))
         
         return jsonify(result)
         
