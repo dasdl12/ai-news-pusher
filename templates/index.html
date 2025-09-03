@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI资讯采集系统</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link href="https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.5s ease;
+        }
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+        .card {
+            backdrop-filter: blur(10px);
+            background-color: rgba(255, 255, 255, 0.9);
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6b4190 100%);
+        }
+        .markdown-content {
+            line-height: 1.6;
+        }
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            font-weight: bold;
+            margin: 1rem 0;
+        }
+        .markdown-content h1 { font-size: 1.5rem; }
+        .markdown-content h2 { font-size: 1.3rem; }
+        .markdown-content h3 { font-size: 1.1rem; }
+        .markdown-content p { margin: 0.5rem 0; }
+        .markdown-content ul { margin: 0.5rem 0; padding-left: 1.5rem; }
+        .article-item {
+            transition: all 0.3s ease;
+        }
+        .article-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部导航 -->
+        <nav class="glass shadow-lg mb-6">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center py-4">
+                    <div class="flex items-center">
+                        <i class="fas fa-robot text-2xl text-white mr-3"></i>
+                        <h1 class="text-xl font-bold text-white">AI资讯采集系统</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <button @click="testConnections" class="text-white hover:text-yellow-300 transition-colors">
+                            <i class="fas fa-wifi mr-1"></i>
+                            <span class="text-sm">连接测试</span>
+                        </button>
+                        <button @click="openConfigModal" class="text-white hover:text-blue-300 transition-colors">
+                            <i class="fas fa-cog mr-1"></i>
+                            <span class="text-sm">设置</span>
+                        </button>
+                        <div class="flex items-center space-x-2 text-sm text-white">
+                            <span :class="config.deepseek_configured ? 'text-green-300' : 'text-red-300'">
+                                <i class="fas fa-brain mr-1"></i>DeepSeek
+                            </span>
+                            <span :class="config.webhook_configured ? 'text-green-300' : 'text-red-300'">
+                                <i class="fas fa-link mr-1"></i>Webhook
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- 进度显示 -->
+            <div v-if="progress.status !== 'idle'" class="card rounded-lg shadow-lg mb-6 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold flex items-center">
+                        <i class="fas fa-tasks mr-2 text-blue-600"></i>
+                        任务进度
+                    </h3>
+                    <span :class="getStatusClass(progress.status)" class="px-3 py-1 rounded-full text-sm font-medium">
+                        <span v-text="getStatusText(progress.status)"></span>
+                    </span>
+                </div>
+                
+                <div class="w-full bg-gray-200 rounded-full h-3 mb-3">
+                    <div class="progress-bar bg-blue-600 h-3 rounded-full" :style="{width: progress.progress + '%'}"></div>
+                </div>
+                
+                <p class="text-gray-700 mb-2" v-text="progress.message"></p>
+                
+                <div v-if="progress.details && progress.details.length > 0" class="text-sm text-gray-600">
+                    <div v-for="detail in progress.details.slice(-5)" :key="detail" class="mb-1" v-text="detail">
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- 左侧：采集控制 -->
+                <div class="lg:col-span-1">
+                    <div class="card rounded-lg shadow-lg p-6">
+                        <h2 class="text-xl font-bold mb-4 flex items-center">
+                            <i class="fas fa-spider mr-2 text-green-600"></i>
+                            采集控制
+                        </h2>
+                        
+                        <!-- 日期选择 -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">选择日期</label>
+                            <input type="date" v-model="selectedDate" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- 来源选择 -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">采集来源</label>
+                            <div class="space-y-2">
+                                <label class="flex items-center">
+                                    <input type="checkbox" v-model="selectedSources" value="tencent" class="mr-2">
+                                    <span class="text-sm">腾讯研究院AI速递 (权重8分)</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" v-model="selectedSources" value="aibase" class="mr-2">
+                                    <span class="text-sm">AIBase快讯 (权重5分)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- 开始采集按钮 -->
+                        <button @click="startCrawl" :disabled="isWorking || selectedSources.length === 0"
+                                class="w-full btn-primary text-white py-2 px-4 rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i class="fas fa-play mr-2"></i>
+                            <span v-text="isWorking ? '采集中...' : '开始采集'"></span>
+                        </button>
+
+                        <!-- 文章统计 -->
+                        <div v-if="articles.length > 0" class="mt-4 p-3 bg-blue-50 rounded-md">
+                            <div class="text-sm text-blue-700">
+                                <i class="fas fa-newspaper mr-1"></i>
+                                共采集到 <span v-text="articles.length"></span> 篇文章
+                            </div>
+                            <div class="text-xs text-blue-600 mt-1">
+                                腾讯研究院: <span v-text="articles.filter(a => a.source && a.source.includes('腾讯')).length"></span> 篇
+                                | AIBase: <span v-text="articles.filter(a => a.source && a.source.includes('AIBase')).length"></span> 篇
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI处理控制 -->
+                    <div class="card rounded-lg shadow-lg p-6 mt-6">
+                        <h2 class="text-xl font-bold mb-4 flex items-center">
+                            <i class="fas fa-brain mr-2 text-purple-600"></i>
+                            AI处理
+                        </h2>
+
+                        <button @click="generateReport" :disabled="isWorking || articles.length === 0"
+                                class="w-full btn-primary text-white py-2 px-4 rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed mb-3">
+                            <i class="fas fa-magic mr-2"></i>
+                            生成AI日报
+                        </button>
+
+                        <button @click="generatePoster" :disabled="isWorking || !reportContent"
+                                class="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3">
+                            <i class="fas fa-image mr-2"></i>
+                            <span v-text="isWorking ? '🎨 生成中...' : '生成海报'"></span>
+                        </button>
+
+                        <!-- 推送控制 -->
+                        <div class="border-t pt-4">
+                            <h3 class="font-semibold mb-2 text-gray-700">
+                                <i class="fas fa-paper-plane mr-1"></i>
+                                推送到金山文档
+                            </h3>
+                            <div class="space-y-2">
+                                <button @click="sendReport" :disabled="isWorking || !reportContent"
+                                        class="w-full bg-blue-600 text-white py-1.5 px-3 rounded text-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i class="fas fa-file-text mr-1"></i>
+                                    推送日报
+                                </button>
+                                <button @click="sendPoster" :disabled="isWorking || !posterPath"
+                                        class="w-full bg-orange-600 text-white py-1.5 px-3 rounded text-sm hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i class="fas fa-image mr-1"></i>
+                                    推送海报
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧：内容展示 -->
+                <div class="lg:col-span-2">
+                    <!-- 选项卡 -->
+                    <div class="card rounded-lg shadow-lg mb-6">
+                        <div class="border-b border-gray-200">
+                            <nav class="flex">
+                                <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id"
+                                        :class="activeTab === tab.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                        class="py-2 px-4 border-b-2 font-medium text-sm transition-colors">
+                                    <i :class="tab.icon" class="mr-1"></i>
+                                    <span v-text="tab.name"></span>
+                                    <span v-if="tab.count !== undefined" class="ml-1 px-2 py-0.5 text-xs bg-gray-200 rounded-full" v-text="tab.count">
+                                    </span>
+                                </button>
+                            </nav>
+                        </div>
+
+                        <div class="p-6">
+                            <!-- 原始文章列表 -->
+                            <div v-show="activeTab === 'articles'">
+                                <div v-if="articles.length === 0" class="text-center text-gray-500 py-8">
+                                    <i class="fas fa-inbox text-4xl mb-4"></i>
+                                    <p>暂无采集的文章，请先开始采集</p>
+                                </div>
+                                <div v-else class="space-y-4">
+                                    <div v-for="article in articles" :key="article.url" 
+                                         class="article-item border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all">
+                                        <div class="flex justify-between items-start mb-2">
+                                            <h3 class="font-medium text-gray-900 flex-1 pr-2" v-text="article.title"></h3>
+                                            <span :class="getSourceClass(article.source)" 
+                                                  class="px-2 py-1 rounded text-xs font-medium whitespace-nowrap"
+                                                  v-text="article.source">
+                                            </span>
+                                        </div>
+                                        <p class="text-sm text-gray-600 mb-2" v-text="truncateText(article.content, 150)"></p>
+                                        <div class="flex justify-between items-center text-xs text-gray-500">
+                                            <span><i class="fas fa-calendar mr-1"></i><span v-text="article.date"></span></span>
+                                            <span v-if="article.weight"><i class="fas fa-star mr-1"></i>权重: <span v-text="article.weight"></span>分</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- AI日报内容 -->
+                            <div v-show="activeTab === 'report'">
+                                <div v-if="!reportContent" class="text-center text-gray-500 py-8">
+                                    <i class="fas fa-file-alt text-4xl mb-4"></i>
+                                    <p>暂无AI日报，请先生成日报</p>
+                                </div>
+                                <div v-else>
+                                    <div class="mb-4 flex justify-end">
+                                        <button @click="copyToClipboard(reportContent)" 
+                                                class="px-3 py-1 bg-gray-200 text-gray-700 rounded text-sm hover:bg-gray-300 transition-colors">
+                                            <i class="fas fa-copy mr-1"></i>复制内容
+                                        </button>
+                                    </div>
+                                    <div class="markdown-content border border-gray-200 rounded-lg p-4 bg-white max-h-96 overflow-y-auto">
+                                        <pre class="whitespace-pre-wrap text-sm" v-text="reportContent"></pre>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 海报预览 -->
+                            <div v-show="activeTab === 'poster'">
+                                <div v-if="!posterPath" class="text-center text-gray-500 py-8">
+                                    <i class="fas fa-image text-4xl mb-4"></i>
+                                    <p>暂无海报，请先生成海报</p>
+                                </div>
+                                <div v-else class="text-center">
+                                    <div class="mb-4 flex justify-center space-x-2">
+                                        <button @click="downloadPoster" 
+                                                class="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors">
+                                            <i class="fas fa-download mr-1"></i>下载海报
+                                        </button>
+                                        <button @click="viewPosterFullsize" 
+                                                class="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors">
+                                            <i class="fas fa-expand mr-1"></i>查看大图
+                                        </button>
+                                    </div>
+                                    <img :src="'/api/files/' + posterPath.split('/').pop()" 
+                                         alt="AI资讯海报" 
+                                         class="max-w-full h-auto rounded-lg shadow-lg mx-auto"
+                                         style="max-height: 600px;">
+                                </div>
+                            </div>
+
+                            <!-- 系统日志 -->
+                            <div v-show="activeTab === 'logs'">
+                                <div class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm max-h-96 overflow-y-auto">
+                                    <div v-for="log in systemLogs" :key="log.timestamp" class="mb-1">
+                                        <span class="text-gray-500" v-text="'[' + formatTime(log.timestamp) + ']'"></span>
+                                        <span :class="getLogClass(log.level)" v-text="log.message"></span>
+                                    </div>
+                                    <div v-if="systemLogs.length === 0" class="text-gray-500">暂无日志</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通知消息 -->
+        <transition name="fade">
+            <div v-if="notification" :class="getNotificationClass(notification.type)"
+                 class="fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50">
+                <i :class="getNotificationIcon(notification.type)" class="mr-2"></i>
+                <span v-text="notification.message"></span>
+            </div>
+        </transition>
+
+        <!-- 配置管理模态框 -->
+        <div v-if="showConfigModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="card rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-semibold flex items-center">
+                        <i class="fas fa-cog mr-2 text-blue-600"></i>
+                        系统配置
+                    </h3>
+                    <button @click="showConfigModal = false" class="text-gray-400 hover:text-gray-600 transition-colors">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- DeepSeek API Key -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-brain mr-1 text-purple-600"></i>
+                            DeepSeek API Key
+                            <span :class="configStatus.deepseek_configured ? 'text-green-600' : 'text-red-600'" class="text-xs ml-1">
+                                <template v-if="configStatus.deepseek_configured">✓ 已配置</template>
+                                <template v-else>✗ 未配置</template>
+                            </span>
+                        </label>
+                        <input 
+                            v-model="configForm.deepseek_api_key" 
+                            type="password" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        >
+                        <p class="text-xs text-gray-500 mt-1">
+                            从 <a href="https://platform.deepseek.com" target="_blank" class="text-blue-600 hover:underline">DeepSeek官网</a> 获取API密钥
+                        </p>
+                    </div>
+
+                    <!-- Webhook URL -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-link mr-1 text-green-600"></i>
+                            金山文档 Webhook URL
+                            <span :class="configStatus.webhook_configured ? 'text-green-600' : 'text-red-600'" class="text-xs ml-1">
+                                <template v-if="configStatus.webhook_configured">✓ 已配置</template>
+                                <template v-else>✗ 未配置</template>
+                            </span>
+                        </label>
+                        <input 
+                            v-model="configForm.webhook_url" 
+                            type="url" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="https://xz.wps.cn/api/v1/webhook/send?key=..."
+                        >
+                        <p class="text-xs text-gray-500 mt-1">
+                            从金山文档群聊机器人管理页面获取Webhook URL
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 操作按钮 -->
+                <div class="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
+                    <button 
+                        @click="showConfigModal = false" 
+                        class="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                        :disabled="configSaving"
+                    >
+                        取消
+                    </button>
+                    <button 
+                        @click="saveConfig" 
+                        class="btn-primary px-4 py-2 text-white rounded-md hover:opacity-90 transition-opacity flex items-center"
+                        :disabled="configSaving"
+                    >
+                        <i v-if="configSaving" class="fas fa-spinner fa-spin mr-2"></i>
+                        <i v-else class="fas fa-save mr-2"></i>
+                        <template v-if="configSaving">保存中...</template>
+                        <template v-else>保存配置</template>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    // 系统配置
+                    config: {
+                        deepseek_configured: false,
+                        webhook_configured: false,
+                        cache_enabled: true,
+                        image_enabled: true
+                    },
+                    
+                    // UI状态
+                    activeTab: 'articles',
+                    selectedDate: new Date().toISOString().split('T')[0],
+                    selectedSources: ['tencent', 'aibase'],
+                    isWorking: false,
+                    notification: null,
+                    showConfigModal: false,
+                    
+                    // 配置管理
+                    configForm: {
+                        deepseek_api_key: '',
+                        webhook_url: ''
+                    },
+                    configStatus: {
+                        deepseek_configured: false,
+                        webhook_configured: false
+                    },
+                    configSaving: false,
+                    
+                    // 数据
+                    articles: [],
+                    reportContent: '',
+                    posterPath: '',
+                    systemLogs: [],
+                    
+                    // 进度
+                    progress: {
+                        status: 'idle',
+                        progress: 0,
+                        message: '',
+                        details: []
+                    },
+                    
+                    // 选项卡配置
+                    tabs: [
+                        { id: 'articles', name: '原始文章', icon: 'fas fa-newspaper', count: 0 },
+                        { id: 'report', name: 'AI日报', icon: 'fas fa-file-alt' },
+                        { id: 'poster', name: '海报预览', icon: 'fas fa-image' },
+                        { id: 'logs', name: '系统日志', icon: 'fas fa-terminal' }
+                    ]
+                };
+            },
+            
+            computed: {
+                // 更新选项卡计数
+                tabsWithCounts() {
+                    this.tabs[0].count = this.articles.length;
+                    return this.tabs;
+                }
+            },
+            
+            mounted() {
+                this.loadConfig();
+                this.startProgressPolling();
+                this.addLog('info', '系统启动完成');
+            },
+            
+            methods: {
+                // 加载系统配置
+                async loadConfig() {
+                    try {
+                        const response = await axios.get('/api/config');
+                        this.config = response.data;
+                    } catch (error) {
+                        this.showNotification('error', '加载配置失败');
+                        this.addLog('error', `加载配置失败: ${error.message}`);
+                    }
+                },
+                
+                // 加载详细配置信息
+                async loadConfigDetails() {
+                    try {
+                        const response = await axios.get('/api/config/details');
+                        if (response.data.success) {
+                            this.configForm = {
+                                deepseek_api_key: response.data.config.deepseek_api_key,
+                                webhook_url: response.data.config.webhook_url
+                            };
+                            this.configStatus = response.data.status;
+                        }
+                    } catch (error) {
+                        this.showNotification('error', '加载配置详情失败');
+                        this.addLog('error', `加载配置详情失败: ${error.message}`);
+                    }
+                },
+                
+                // 保存配置
+                async saveConfig() {
+                    this.configSaving = true;
+                    try {
+                        const response = await axios.post('/api/config/save', this.configForm);
+                        if (response.data.success) {
+                            this.showNotification('success', response.data.message);
+                            this.showConfigModal = false;
+                            // 重新加载系统配置状态
+                            await this.loadConfig();
+                            this.addLog('info', '配置保存成功');
+                        } else {
+                            this.showNotification('error', response.data.error || '保存失败');
+                        }
+                    } catch (error) {
+                        this.showNotification('error', '保存配置失败');
+                        this.addLog('error', `保存配置失败: ${error.message}`);
+                    } finally {
+                        this.configSaving = false;
+                    }
+                },
+                
+                // 打开配置模态框
+                async openConfigModal() {
+                    this.showConfigModal = true;
+                    await this.loadConfigDetails();
+                },
+                
+                // 连接测试
+                async testConnections() {
+                    this.isWorking = true;
+                    this.addLog('info', '开始连接测试...');
+                    
+                    try {
+                        const response = await axios.post('/api/test_connections');
+                        const results = response.data.results;
+                        
+                        let successCount = 0;
+                        if (results.deepseek && results.deepseek.success) successCount++;
+                        if (results.webhook && results.webhook.success) successCount++;
+                        
+                        this.showNotification('success', `连接测试完成，${successCount}/2 个服务正常`);
+                        this.addLog('info', `连接测试完成: DeepSeek ${results.deepseek && results.deepseek.success ? '✅' : '❌'}, Webhook ${results.webhook && results.webhook.success ? '✅' : '❌'}`);
+                    } catch (error) {
+                        this.showNotification('error', '连接测试失败');
+                        this.addLog('error', `连接测试失败: ${error.message}`);
+                    } finally {
+                        this.isWorking = false;
+                    }
+                },
+                
+                // 开始爬取
+                async startCrawl() {
+                    this.isWorking = true;
+                    this.articles = [];
+                    this.reportContent = '';
+                    this.posterPath = '';
+                    this.addLog('info', `开始采集 ${this.selectedDate} 的资讯...`);
+                    
+                    try {
+                        const response = await axios.post('/api/crawl', {
+                            date: this.selectedDate,
+                            sources: this.selectedSources
+                        });
+                        
+                        this.showNotification('success', '采集任务已启动');
+                    } catch (error) {
+                        this.showNotification('error', '启动采集任务失败');
+                        this.addLog('error', `启动采集失败: ${error.message}`);
+                        this.isWorking = false;
+                    }
+                },
+                
+                // 生成AI日报
+                async generateReport() {
+                    if (this.articles.length === 0) {
+                        this.showNotification('warning', '没有可用的文章数据');
+                        return;
+                    }
+                    
+                    this.isWorking = true;
+                    this.addLog('info', '开始生成AI日报...');
+                    
+                    try {
+                        const response = await axios.post('/api/generate_report', {
+                            date: this.selectedDate,
+                            articles: this.articles
+                        });
+                        
+                        if (response.data.success) {
+                            this.reportContent = response.data.report.content;
+                            this.activeTab = 'report';
+                            this.showNotification('success', 'AI日报生成成功');
+                            this.addLog('info', 'AI日报生成完成');
+                        } else {
+                            this.showNotification('error', response.data.error || '生成日报失败');
+                            this.addLog('error', `生成日报失败: ${response.data.error}`);
+                        }
+                    } catch (error) {
+                        this.showNotification('error', '生成日报失败');
+                        this.addLog('error', `生成日报异常: ${error.message}`);
+                    } finally {
+                        this.isWorking = false;
+                    }
+                },
+                
+                // 生成海报
+                async generatePoster() {
+                    if (!this.reportContent) {
+                        this.showNotification('warning', '请先生成AI日报');
+                        return;
+                    }
+                    
+                    this.isWorking = true;
+                    this.addLog('info', '🎨 开始生成海报...');
+                    this.addLog('info', '📝 正在调用AI生成海报HTML...');
+                    
+                    try {
+                        const response = await axios.post('/api/generate_poster', {
+                            content: this.reportContent,
+                            date: this.selectedDate,
+                            use_ai: true
+                        });
+                        
+                        if (response.data.success) {
+                            this.posterPath = response.data.path;
+                            this.activeTab = 'poster';
+                            const htmlSource = response.data.html_source || '模板';
+                            this.showNotification('success', `海报生成成功（${htmlSource}）`);
+                            this.addLog('info', `✅ 海报生成完成，使用${htmlSource}`);
+                            this.addLog('info', `📊 文件大小: ${Math.round(response.data.file_size/1024)}KB`);
+                        } else {
+                            this.showNotification('error', response.data.error || '生成海报失败');
+                            this.addLog('error', `❌ 生成海报失败: ${response.data.error}`);
+                        }
+                    } catch (error) {
+                        this.showNotification('error', '生成海报失败');
+                        this.addLog('error', `❌ 生成海报异常: ${error.message}`);
+                    } finally {
+                        this.isWorking = false;
+                    }
+                },
+                
+                // 发送日报
+                async sendReport() {
+                    if (!this.reportContent) {
+                        this.showNotification('warning', '没有可发送的日报内容');
+                        return;
+                    }
+                    
+                    this.isWorking = true;
+                    this.addLog('info', '发送日报到金山文档...');
+                    
+                    try {
+                        const response = await axios.post('/api/send_report', {
+                            content: this.reportContent,
+                            date: this.selectedDate
+                        });
+                        
+                        if (response.data.success) {
+                            this.showNotification('success', '日报发送成功');
+                            this.addLog('info', '日报推送完成');
+                        } else {
+                            this.showNotification('error', response.data.error || '发送日报失败');
+                            this.addLog('error', `发送日报失败: ${response.data.error}`);
+                        }
+                    } catch (error) {
+                        this.showNotification('error', '发送日报失败');
+                        this.addLog('error', `发送日报异常: ${error.message}`);
+                    } finally {
+                        this.isWorking = false;
+                    }
+                },
+                
+                // 发送海报
+                async sendPoster() {
+                    if (!this.posterPath) {
+                        this.showNotification('warning', '没有可发送的海报');
+                        return;
+                    }
+                    
+                    this.isWorking = true;
+                    this.addLog('info', '发送海报到金山文档...');
+                    
+                    try {
+                        const response = await axios.post('/api/send_poster', {
+                            image_path: this.posterPath,
+                            content: this.reportContent,
+                            date: this.selectedDate
+                        });
+                        
+                        if (response.data.success) {
+                            this.showNotification('success', '海报发送成功');
+                            this.addLog('info', '海报推送完成');
+                        } else {
+                            this.showNotification('error', response.data.error || '发送海报失败');
+                            this.addLog('error', `发送海报失败: ${response.data.error}`);
+                        }
+                    } catch (error) {
+                        this.showNotification('error', '发送海报失败');
+                        this.addLog('error', `发送海报异常: ${error.message}`);
+                    } finally {
+                        this.isWorking = false;
+                    }
+                },
+                
+                // 轮询进度
+                startProgressPolling() {
+                    setInterval(async () => {
+                        try {
+                            const response = await axios.get('/api/progress');
+                            this.progress = response.data;
+                            
+                            // 如果任务完成，更新相关数据
+                            if (this.progress.status === 'completed' && this.progress.articles) {
+                                this.articles = this.progress.articles;
+                                this.isWorking = false;
+                                this.addLog('info', `任务完成，共获取 ${this.articles.length} 篇文章`);
+                            } else if (this.progress.status === 'error') {
+                                this.isWorking = false;
+                                this.addLog('error', this.progress.message);
+                            }
+                        } catch (error) {
+                            // 忽略轮询错误
+                        }
+                    }, 1000);
+                },
+                
+                // 工具方法
+                truncateText(text, length) {
+                    if (!text) return '';
+                    return text.length > length ? text.substring(0, length) + '...' : text;
+                },
+                
+                getStatusClass(status) {
+                    const classes = {
+                        'idle': 'bg-gray-100 text-gray-800',
+                        'running': 'bg-blue-100 text-blue-800',
+                        'completed': 'bg-green-100 text-green-800',
+                        'error': 'bg-red-100 text-red-800'
+                    };
+                    return classes[status] || classes.idle;
+                },
+                
+                getStatusText(status) {
+                    const texts = {
+                        'idle': '空闲',
+                        'running': '运行中',
+                        'completed': '已完成',
+                        'error': '错误'
+                    };
+                    return texts[status] || '未知';
+                },
+                
+                getSourceClass(source) {
+                    if (source && source.includes('腾讯')) {
+                        return 'bg-blue-100 text-blue-800';
+                    } else if (source && source.includes('AIBase')) {
+                        return 'bg-green-100 text-green-800';
+                    }
+                    return 'bg-gray-100 text-gray-800';
+                },
+                
+                getNotificationClass(type) {
+                    const classes = {
+                        'success': 'bg-green-500 text-white',
+                        'error': 'bg-red-500 text-white',
+                        'warning': 'bg-yellow-500 text-white',
+                        'info': 'bg-blue-500 text-white'
+                    };
+                    return classes[type] || classes.info;
+                },
+                
+                getNotificationIcon(type) {
+                    const icons = {
+                        'success': 'fas fa-check-circle',
+                        'error': 'fas fa-exclamation-circle',
+                        'warning': 'fas fa-exclamation-triangle',
+                        'info': 'fas fa-info-circle'
+                    };
+                    return icons[type] || icons.info;
+                },
+                
+                getLogClass(level) {
+                    const classes = {
+                        'info': 'text-green-400',
+                        'error': 'text-red-400',
+                        'warning': 'text-yellow-400',
+                        'debug': 'text-gray-400'
+                    };
+                    return classes[level] || classes.info;
+                },
+                
+                showNotification(type, message) {
+                    this.notification = { type, message };
+                    setTimeout(() => {
+                        this.notification = null;
+                    }, 4000);
+                },
+                
+                addLog(level, message) {
+                    this.systemLogs.unshift({
+                        timestamp: new Date(),
+                        level,
+                        message
+                    });
+                    
+                    // 保持最新50条日志
+                    if (this.systemLogs.length > 50) {
+                        this.systemLogs = this.systemLogs.slice(0, 50);
+                    }
+                },
+                
+                formatTime(date) {
+                    return date.toLocaleTimeString('zh-CN');
+                },
+                
+                async copyToClipboard(text) {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        this.showNotification('success', '内容已复制到剪贴板');
+                    } catch (error) {
+                        this.showNotification('error', '复制失败');
+                    }
+                },
+                
+                downloadPoster() {
+                    if (this.posterPath) {
+                        const filename = this.posterPath.split('/').pop();
+                        window.open(`/api/files/${filename}`, '_blank');
+                    }
+                },
+                
+                viewPosterFullsize() {
+                    if (this.posterPath) {
+                        const filename = this.posterPath.split('/').pop();
+                        window.open(`/api/files/${filename}`, '_blank');
+                    }
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

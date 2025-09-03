@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:open-xz.wps.cn)",
+      "Bash(python test:*)",
+      "WebFetch(domain:news.aibase.com)",
+      "Bash(grep:*)",
+      "Bash(python:*)",
+      "Bash(dir \"C:\\Users\\Administrator\\Desktop\\crawler2\\exports\\posters\"\")",
+      "WebSearch"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
